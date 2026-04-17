@@ -12,6 +12,7 @@ license = { text = "MIT" }
 dependencies = [
     "Pillow>=10.0.0",
     "click>=8.0.0",
+    "flask>=3.0.0",
 ]
 
 [project.scripts]
