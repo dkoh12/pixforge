@@ -126,5 +126,14 @@ def batch(input_dir, output_dir, out_format, quality, scale, width, height, to_g
     click.echo(f"\n🎉 Done! {success} succeeded, {errors} failed.")
 
 
+@main.command()
+@click.option("--port", "-p", default=5000, show_default=True, help="Port to run the GUI on")
+@click.option("--debug", is_flag=True, help="Run in debug mode")
+def gui(port, debug):
+    """Launch the pixforge web GUI in your browser."""
+    from pixforge.gui.app import run
+    run(port=port, debug=debug)
+
+
 # alias: `pixforge convert` maps to the convert_cmd
 main.add_command(convert_cmd, name="convert")
