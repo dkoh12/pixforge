@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pixforge"
+version = "0.1.0"
+description = "🔨 A powerful image conversion and transformation toolkit"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+dependencies = [
+    "Pillow>=10.0.0",
+    "click>=8.0.0",
+]
+
+[project.scripts]
+pixforge = "pixforge.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["pixforge*"]
