@@ -1,42 +1,66 @@
 import io
-from flask import Flask, request, send_file, render_template
+from flask import Flask, request, send_file, render_template, jsonify
 from PIL import Image
-from pixforge.converter import get_format, SUPPORTED_FORMATS
-from pixforge.transforms import resize, crop, rotate, flip, grayscale
+from pixforge.converter import get_format, build_save_kwargs, prepare_for_save, SUPPORTED_FORMATS
+from pixforge.transforms import resize, rotate, flip, grayscale
 
 app = Flask(__name__)
+
+MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB
+
+
+def _parse_int(value: str | None) -> int | None:
+    try:
+        return int(value) if value else None
+    except ValueError:
+        return None
+
+
+def _parse_float(value: str | None) -> float | None:
+    try:
+        return float(value) if value else None
+    except ValueError:
+        return None
 
 
 @app.route("/")
 def index():
-    return render_template("index.html", formats=list(SUPPORTED_FORMATS.keys()))
+    return render_template("index.html")
 
 
 @app.route("/convert", methods=["POST"])
 def convert():
     file = request.files.get("image")
     if not file:
-        return {"error": "No image provided"}, 400
+        return jsonify({"error": "No image provided"}), 400
 
-    out_format = request.form.get("format", ".jpg").lower()
-    if not out_format.startswith("."):
-        out_format = f".{out_format}"
+    # Validate file size
+    file.stream.seek(0, 2)
+    size = file.stream.tell()
+    file.stream.seek(0)
+    if size > MAX_UPLOAD_BYTES:
+        return jsonify({"error": f"File too large (max {MAX_UPLOAD_BYTES // 1024 // 1024} MB)"}), 413
 
-    quality = int(request.form.get("quality", 85))
-    dpi = request.form.get("dpi")
-    dpi = int(dpi) if dpi else None
-    scale = request.form.get("scale")
-    scale = float(scale) if scale else None
-    width = request.form.get("width")
-    width = int(width) if width else None
-    height = request.form.get("height")
-    height = int(height) if height else None
-    rotation = request.form.get("rotate")
-    rotation = int(rotation) if rotation else None
+    # Validate output format
+    out_ext = request.form.get("format", ".jpg").lower()
+    if not out_ext.startswith("."):
+        out_ext = f".{out_ext}"
+    if out_ext not in SUPPORTED_FORMATS:
+        return jsonify({"error": f"Unsupported format: {out_ext}"}), 400
+
+    quality = _parse_int(request.form.get("quality")) or 85
+    dpi = _parse_int(request.form.get("dpi"))
+    scale = _parse_float(request.form.get("scale"))
+    width = _parse_int(request.form.get("width"))
+    height = _parse_int(request.form.get("height"))
+    rotation = _parse_int(request.form.get("rotate"))
     flip_dir = request.form.get("flip") or None
     to_grayscale = request.form.get("grayscale") == "true"
 
-    img = Image.open(file.stream)
+    try:
+        img = Image.open(file.stream)
+    except Exception:
+        return jsonify({"error": "Could not open image — file may be corrupt or unsupported"}), 400
 
     # Apply transforms
     if scale or width or height:
@@ -48,24 +72,15 @@ def convert():
     if to_grayscale:
         img = grayscale(img)
 
-    # Convert mode for JPEG
-    pil_format = SUPPORTED_FORMATS.get(out_format, "JPEG")
-    if pil_format == "JPEG" and img.mode in ("RGBA", "P", "L"):
-        img = img.convert("RGB")
+    pil_format = SUPPORTED_FORMATS[out_ext]
+    img = prepare_for_save(img, pil_format)
 
-    # Save to buffer
     buf = io.BytesIO()
-    save_kwargs = {}
-    if pil_format in ("JPEG", "WEBP"):
-        save_kwargs["quality"] = quality
-    if dpi:
-        save_kwargs["dpi"] = (dpi, dpi)
-    img.save(buf, format=pil_format, **save_kwargs)
+    img.save(buf, format=pil_format, **build_save_kwargs(pil_format, quality, dpi))
     buf.seek(0)
 
-    # Build output filename
     original_name = file.filename.rsplit(".", 1)[0]
-    out_filename = f"{original_name}_converted{out_format}"
+    out_filename = f"{original_name}_converted{out_ext}"
 
     return send_file(
         buf,
@@ -75,6 +90,6 @@ def convert():
     )
 
 
-def run(port=5000, debug=False):
+def run(port: int = 5000, debug: bool = False) -> None:
     print(f"🔨 pixforge GUI running at http://localhost:{port}")
     app.run(port=port, debug=debug)
