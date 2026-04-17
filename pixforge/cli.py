@@ -2,9 +2,25 @@ import click
 from pathlib import Path
 from PIL import Image
 
-from .converter import convert, SUPPORTED_FORMATS
-from .transforms import resize, crop, rotate, flip, grayscale
+from .converter import get_format, build_save_kwargs, prepare_for_save, SUPPORTED_FORMATS
+from .transforms import resize, crop as crop_img, rotate, flip, grayscale
 from .utils import validate_input, validate_output
+
+
+def _apply_transforms(img: Image.Image, scale, width, height, crop, rotation, flip_dir, to_grayscale) -> Image.Image:
+    """Apply all requested transforms to an image in a consistent order."""
+    if scale or width or height:
+        img = resize(img, width, height, scale)
+    if crop:
+        x, y, w, h = crop
+        img = crop_img(img, x, y, w, h)
+    if rotation:
+        img = rotate(img, rotation)
+    if flip_dir:
+        img = flip(img, flip_dir)
+    if to_grayscale:
+        img = grayscale(img)
+    return img
 
 
 @click.group()
@@ -34,42 +50,13 @@ def convert_cmd(input, output, quality, dpi, scale, width, height, rotation, fli
     img = Image.open(input)
     click.echo(f"📂 Input:  {input} ({img.size[0]}x{img.size[1]}, {img.mode})")
 
-    # Apply transforms
-    if scale or width or height:
-        img = resize(img, width, height, scale)
-        click.echo(f"📐 Resized to {img.size[0]}x{img.size[1]}")
+    img = _apply_transforms(img, scale, width, height, crop, rotation, flip_dir, to_grayscale)
 
-    if crop:
-        x, y, w, h = crop
-        img = globals()["crop"](img, x, y, w, h) if False else __import__("pixforge.transforms", fromlist=["crop"]).crop(img, x, y, w, h)
-        click.echo(f"✂️  Cropped to {img.size[0]}x{img.size[1]}")
-
-    if rotation:
-        img = rotate(img, rotation)
-        click.echo(f"🔄 Rotated {rotation}°")
-
-    if flip_dir:
-        img = flip(img, flip_dir)
-        click.echo(f"🔁 Flipped {flip_dir}")
-
-    if to_grayscale:
-        img = grayscale(img)
-        click.echo("🎨 Converted to grayscale")
-
-    # Save
-    from .converter import get_format
     out_format = get_format(output)
-    if out_format == "JPEG" and img.mode in ("RGBA", "P", "L"):
-        img = img.convert("RGB")
-
-    save_kwargs = {}
-    if out_format in ("JPEG", "WEBP"):
-        save_kwargs["quality"] = quality
-    if dpi:
-        save_kwargs["dpi"] = (dpi, dpi)
+    img = prepare_for_save(img, out_format)
 
     output.parent.mkdir(parents=True, exist_ok=True)
-    img.save(output, format=out_format, **save_kwargs)
+    img.save(output, format=out_format, **build_save_kwargs(out_format, quality, dpi))
     click.echo(f"✅ Output: {output} ({img.size[0]}x{img.size[1]})")
 
 
@@ -102,21 +89,10 @@ def batch(input_dir, output_dir, out_format, quality, scale, width, height, to_g
         try:
             out_path = output_dir / (f.stem + ext)
             img = Image.open(f)
-
-            if scale or width or height:
-                img = resize(img, width, height, scale)
-            if to_grayscale:
-                img = grayscale(img)
-
-            out_f = SUPPORTED_FORMATS[ext]
-            if out_f == "JPEG" and img.mode in ("RGBA", "P", "L"):
-                img = img.convert("RGB")
-
-            save_kwargs = {}
-            if out_f in ("JPEG", "WEBP"):
-                save_kwargs["quality"] = quality
-
-            img.save(out_path, format=out_f, **save_kwargs)
+            img = _apply_transforms(img, scale, width, height, None, None, None, to_grayscale)
+            pil_format = SUPPORTED_FORMATS[ext]
+            img = prepare_for_save(img, pil_format)
+            img.save(out_path, format=pil_format, **build_save_kwargs(pil_format, quality, None))
             click.echo(f"  ✅ {f.name} → {out_path.name}")
             success += 1
         except Exception as e:
@@ -135,5 +111,4 @@ def gui(port, debug):
     run(port=port, debug=debug)
 
 
-# alias: `pixforge convert` maps to the convert_cmd
 main.add_command(convert_cmd, name="convert")
