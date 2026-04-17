@@ -1,8 +1,12 @@
+"""Flask web GUI for pixforge image conversion."""
+
 import io
+
 from flask import Flask, request, send_file, render_template, jsonify
 from PIL import Image
+
 from pixforge.converter import build_save_kwargs, prepare_for_save, SUPPORTED_FORMATS
-from pixforge.transforms import resize, rotate, flip, grayscale
+from pixforge.transforms import apply_transforms
 
 app = Flask(__name__)
 
@@ -10,6 +14,7 @@ MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB
 
 
 def _parse_int(value: str | None) -> int | None:
+    """Parse a string to int, returning None if empty or invalid."""
     try:
         return int(value) if value else None
     except ValueError:
@@ -17,6 +22,7 @@ def _parse_int(value: str | None) -> int | None:
 
 
 def _parse_float(value: str | None) -> float | None:
+    """Parse a string to float, returning None if empty or invalid."""
     try:
         return float(value) if value else None
     except ValueError:
@@ -25,11 +31,13 @@ def _parse_float(value: str | None) -> float | None:
 
 @app.route("/")
 def index():
+    """Render the main GUI page."""
     return render_template("index.html")
 
 
 @app.route("/convert", methods=["POST"])
-def convert():
+def convert():  # pylint: disable=too-many-locals
+    """Accept an uploaded image, apply transforms, and return the converted file."""
     file = request.files.get("image")
     if not file:
         return jsonify({"error": "No image provided"}), 400
@@ -39,7 +47,8 @@ def convert():
     size = file.stream.tell()
     file.stream.seek(0)
     if size > MAX_UPLOAD_BYTES:
-        return jsonify({"error": f"File too large (max {MAX_UPLOAD_BYTES // 1024 // 1024} MB)"}), 413
+        max_mb = MAX_UPLOAD_BYTES // 1024 // 1024
+        return jsonify({"error": f"File too large (max {max_mb} MB)"}), 413
 
     # Validate output format
     out_ext = request.form.get("format", ".jpg").lower()
@@ -59,18 +68,11 @@ def convert():
 
     try:
         img = Image.open(file.stream)
-    except Exception:
+    except (OSError, ValueError):
         return jsonify({"error": "Could not open image — file may be corrupt or unsupported"}), 400
 
-    # Apply transforms
-    if scale or width or height:
-        img = resize(img, width, height, scale)
-    if rotation:
-        img = rotate(img, rotation)
-    if flip_dir:
-        img = flip(img, flip_dir)
-    if to_grayscale:
-        img = grayscale(img)
+    img = apply_transforms(img, scale, width, height, rotation=rotation,
+                           flip_dir=flip_dir, to_grayscale=to_grayscale)
 
     pil_format = SUPPORTED_FORMATS[out_ext]
     img = prepare_for_save(img, pil_format)
@@ -91,5 +93,6 @@ def convert():
 
 
 def run(port: int = 5000, debug: bool = False) -> None:
+    """Start the Flask development server."""
     print(f"🔨 pixforge GUI running at http://localhost:{port}")
     app.run(port=port, debug=debug)

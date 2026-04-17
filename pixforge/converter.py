@@ -1,5 +1,8 @@
-from PIL import Image
+"""Image format conversion utilities for pixforge."""
+
 from pathlib import Path
+
+from PIL import Image
 
 SUPPORTED_FORMATS = {
     ".png": "PNG",
