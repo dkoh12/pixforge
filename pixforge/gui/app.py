@@ -1,7 +1,7 @@
 import io
 from flask import Flask, request, send_file, render_template, jsonify
 from PIL import Image
-from pixforge.converter import get_format, build_save_kwargs, prepare_for_save, SUPPORTED_FORMATS
+from pixforge.converter import build_save_kwargs, prepare_for_save, SUPPORTED_FORMATS
 from pixforge.transforms import resize, rotate, flip, grayscale
 
 app = Flask(__name__)
